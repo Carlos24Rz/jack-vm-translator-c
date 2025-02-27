@@ -16,8 +16,8 @@ typedef enum CommandType
   C_CALL
 } CommandType;
 
-typedef char* ArithmeticLogicalCommand;
+typedef const char* ArithmeticLogicalCommand;
 
-typedef char* MemorySegment;
+typedef const char* MemorySegment;
 
 #endif
