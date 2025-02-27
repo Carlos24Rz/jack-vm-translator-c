@@ -1,8 +1,8 @@
-/* code_writter.h: Translates a parsed VM command into
+/* code_writer.h: Translates a parsed VM command into
  *                 Hack assembly code
  */
-#ifndef CODE_WRITTER_H 
-#define CODE_WRITTER_H
+#ifndef CODE_WRITER_H 
+#define CODE_WRITER_H
 
 #include "translator_common.h"
 
