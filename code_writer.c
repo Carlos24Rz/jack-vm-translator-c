@@ -97,6 +97,34 @@ struct CodeWriter
 char *stack_get_top_element_assembly(char *output_instruction,
                                      size_t output_instruction_size);
 
+/* Generates an assembly instruction to store the current value in the memory
+ * register to the data register, and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *store_in_register(char *output_instruction,
+                        size_t output_instruction_size);
+
+/* Generates an assembly instruction for a unarity arithmetic-logical operation
+ * on the data register, and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+ char *write_unary_operation(char *output_instruction,
+                             size_t output_instruction_size,
+                             ArithmeticLogicalCommandType operation);
+
+/* Generates an assembly instruction to move push the value stored in
+ * the data register to the top of the stack, update the sp value, and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *stack_push_element_assembly(char *output_instruction,
+                                  size_t output_instruction_size);
+
 /* End Internal Functions */
 
 /* Opens an output file and gets ready to write into it */
@@ -120,11 +148,39 @@ CodeWriter *code_writer_init(const char *output_filename)
   return new_writer;
 }
 
+#define UPDATE_INSTRUCTION(instruction, instruction_end,   \
+                           instruction_size, add_newline)  \
+  do                                                       \
+  {                                                        \
+    if (!instruction_end)                                  \
+      return CODE_WRITER_FAIL_WRITE;                       \
+                                                           \
+    /* Update buffer size */                               \
+    instruction_size = instruction_size -                  \
+                       (current_instruction_end -          \
+                        assembly_instruction_buf + 1);     \
+                                                           \
+    /* TODO: Increase instruction buffer size? */          \
+    if (assembly_instruction_buf_size <= 1)                \
+      return CODE_WRITER_FAIL_WRITE;                       \
+                                                           \
+    instruction = instruction_end + 1;                     \
+                                                           \
+    /* Add new line character or null character */         \
+    if (add_newline)                                       \
+      *instruction = '\n';                                 \
+    else                                                   \
+      *instruction = '\0';                                 \
+                                                           \
+    instruction++;                                         \
+    instruction_size--;                                    \
+  } while (0)
+
 /* Writes to the output file the assembly code that implements
  * the given arithmetic-logical command */
 CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
   ArithmeticLogicalCommand cmd)
-{
+{  
 #define ASSEMBLY_INSTRUCTIONS_SIZE 1024
   ArithmeticLogicalCommandType command_type;
   char assembly_instructions[ASSEMBLY_INSTRUCTIONS_SIZE];
@@ -172,37 +228,42 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
   current_instruction_end =
     stack_get_top_element_assembly(assembly_instruction_buf,
                                    assembly_instruction_buf_size);
-
-  if (!current_instruction_end)
-    return CODE_WRITER_FAIL_WRITE;
-
-  /* Update buffer size */
-  assembly_instruction_buf_size = assembly_instruction_buf_size -
-                      (current_instruction_end - assembly_instruction_buf + 1);
-
-  /* TODO: Increase instruction buffer size? */
-  if (assembly_instruction_buf_size <= 1)
-    return CODE_WRITER_FAIL_WRITE;
-
-  assembly_instruction_buf = current_instruction_end + 1;
-
-  /* Add new line character */
-  *assembly_instruction_buf = '\n';
-  assembly_instruction_buf++;
-  assembly_instruction_buf_size--;
+  
+  UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                     assembly_instruction_buf_size, true);
 
   /* Store operand in D Register */
+  current_instruction_end = store_in_register(assembly_instruction_buf,
+                                              assembly_instruction_buf_size);
+  
+  UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                     assembly_instruction_buf_size, true);
 
-
+  /* Perform computation */
   switch (command_type) {
     case ARITHMETIC_LOGICAL_NEG:
     case ARITHMETIC_LOGICAL_NOT:
+      /* Compute unary operation */
+      current_instruction_end =
+        write_unary_operation(assembly_instruction_buf,
+                              assembly_instruction_buf_size, command_type);
+      
+      UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                         assembly_instruction_buf_size, true);
       break;
     /* Rest of operations */
     default:
       break;
 
   }
+
+  /* Push D register value into stack */
+  current_instruction_end =
+    stack_push_element_assembly(assembly_instruction_buf,
+                                assembly_instruction_buf_size);
+  
+  UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                     assembly_instruction_buf_size, false);
 
   return CODE_WRITER_SUCC;
 }
@@ -229,4 +290,79 @@ char *stack_get_top_element_assembly(char *output_instruction,
 
   /* Return pointer to last character copied */
   return output_instruction + sizeof(asm_instruction) - 2;
+}
+
+/* Generates an assembly instruction to move push the value stored in
+ * the data register to the top of the stack, update the sp value, and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *stack_push_element_assembly(char *output_instruction,
+                                  size_t output_instruction_size)
+{
+  const char asm_instruction[] =
+    "@SP\n"
+    "A=M\n"
+    "M=D\n"
+    "@SP\n"
+    "M=M+1";
+
+  if (output_instruction_size < sizeof(asm_instruction) - 1)
+    return NULL;
+
+  /* Copy assembly instruction into buffer */
+  memcpy(output_instruction, asm_instruction, sizeof(asm_instruction) - 1);
+
+  /* Return pointer to last character copied */
+  return output_instruction + sizeof(asm_instruction) - 2;
+}
+
+/* Generates an assembly instruction to store the current value in the memory
+ * register to the data register, and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *store_in_register(char *output_instruction,
+                        size_t output_instruction_size)
+{
+  const char asm_instruction[] = "D=M";
+  
+  if (output_instruction_size < sizeof(asm_instruction) - 1)
+    return NULL;
+  
+  /* Copy assembly instruction into buffer */
+  memcpy(output_instruction, asm_instruction, sizeof(asm_instruction) - 1);
+
+  /* Return pointer to last character copied */
+  return output_instruction + sizeof(asm_instruction) - 2;
+}
+
+/* Generates an assembly instruction for a unarity arithmetic-logical operation
+ * on the data register, and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_unary_operation(char *output_instruction,
+                            size_t output_instruction_size,
+                            ArithmeticLogicalCommandType operation)
+{
+  const char asm_instruction[] = "D=%cD";
+  size_t writen_bytes = 0;
+
+  if (operation != ARITHMETIC_LOGICAL_NEG &&
+      operation != ARITHMETIC_LOGICAL_NOT)
+    return NULL;
+
+  writen_bytes = snprintf(output_instruction,
+                          output_instruction_size, "D=%cD",
+                          operation == ARITHMETIC_LOGICAL_NEG ? '-' : '!');
+
+  if (writen_bytes > output_instruction_size)
+    return NULL;
+
+  /* Return pointer to last character */
+  return output_instruction + writen_bytes - 1;
 }
