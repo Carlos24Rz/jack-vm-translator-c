@@ -84,7 +84,10 @@ static const MemorySegmentEntry
 struct CodeWriter
 {
   FILE *output_file;
+  int boolean_op_count;
 };
+
+#define ASSEMBLY_INSTRUCTIONS_SIZE 1024
 
 /* Internal Functions */
 
@@ -117,7 +120,8 @@ char *store_in_register(char *output_instruction,
                              ArithmeticLogicalCommandType operation);
 
 /* Generates an assembly instruction to move push the value stored in
- * the data register to the top of the stack, update the sp value, and copies it into a buffer
+ * the data register to the top of the stack, update the sp value, and copies
+ * it into a buffer
  *
  * Returns a pointer to the last byte of the copied instruction in the buffer,
  * or NULL if the buffer is too small to hold the instruction
@@ -125,6 +129,28 @@ char *store_in_register(char *output_instruction,
 char *stack_push_element_assembly(char *output_instruction,
                                   size_t output_instruction_size);
 
+/* Generates an assembly instruction for an arithmetic or
+ * bitwise eperation between the data register and the memory
+ * register, and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_arithmetic_bitwise_operation(char *output_instruction,
+                                         size_t output_instruction_size,
+                                         ArithmeticLogicalCommandType operation);
+
+/* Generates an assembly instruction for a boolean operation
+ * between the data register and the memory register,
+ * and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_boolean_operation(char *output_instruction,
+                              size_t output_instruction_size,
+                              ArithmeticLogicalCommandType operation,
+                              int boolean_count);
 /* End Internal Functions */
 
 /* Opens an output file and gets ready to write into it */
@@ -144,6 +170,7 @@ CodeWriter *code_writer_init(const char *output_filename)
   if (!new_writer) return NULL;
 
   new_writer->output_file = new_file;
+  new_writer->boolean_op_count = 0;
 
   return new_writer;
 }
@@ -179,9 +206,8 @@ CodeWriter *code_writer_init(const char *output_filename)
 /* Writes to the output file the assembly code that implements
  * the given arithmetic-logical command */
 CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
-  ArithmeticLogicalCommand cmd)
+                                              ArithmeticLogicalCommand cmd)
 {  
-#define ASSEMBLY_INSTRUCTIONS_SIZE 1024
   ArithmeticLogicalCommandType command_type;
   char assembly_instructions[ASSEMBLY_INSTRUCTIONS_SIZE];
   char *assembly_instruction_buf = assembly_instructions;
@@ -232,7 +258,7 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
   UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
                      assembly_instruction_buf_size, true);
 
-  /* Store operand in D Register */
+  /* Store first operand in data register */
   current_instruction_end = store_in_register(assembly_instruction_buf,
                                               assembly_instruction_buf_size);
   
@@ -240,22 +266,56 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
                      assembly_instruction_buf_size, true);
 
   /* Perform computation */
-  switch (command_type) {
+  switch (command_type)
+  {
     case ARITHMETIC_LOGICAL_NEG:
     case ARITHMETIC_LOGICAL_NOT:
       /* Compute unary operation */
       current_instruction_end =
         write_unary_operation(assembly_instruction_buf,
                               assembly_instruction_buf_size, command_type);
-      
-      UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
-                         assembly_instruction_buf_size, true);
       break;
     /* Rest of operations */
     default:
+      /* Pop second operand from the stack.
+       * This will be stored in memory register */
+      current_instruction_end =
+        stack_get_top_element_assembly(assembly_instruction_buf,
+                                       assembly_instruction_buf_size);
+      
+      UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                         assembly_instruction_buf_size, true);
+      
+      /* Compute operation */
+      switch (command_type)
+      {
+        /* Arithmetic and bitwise operations (Supported natively) */
+        case ARITHMETIC_LOGICAL_ADD:
+        case ARITHMETIC_LOGICAL_SUB:
+        case ARITHMETIC_LOGICAL_AND:
+        case ARITHMETIC_LOGICAL_OR:
+          /* Generate instruction */
+          current_instruction_end =
+            write_arithmetic_bitwise_operation(assembly_instruction_buf,
+                                               assembly_instruction_buf_size,
+                                               command_type);
+          break;
+        /* Boolean operations (Require more processing )*/
+        default:
+          current_instruction_end =
+            write_boolean_operation(assembly_instruction_buf,
+                                    assembly_instruction_buf_size,
+                                    command_type,
+                                    writer->boolean_op_count);
+          /* Increase boolean count */
+          writer->boolean_op_count++;
+          break;
+      }
       break;
-
   }
+
+  UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+    assembly_instruction_buf_size, true);
 
   /* Push D register value into stack */
   current_instruction_end =
@@ -265,11 +325,25 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
   UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
                      assembly_instruction_buf_size, false);
 
+  fwrite(assembly_instructions, sizeof(char),
+         strlen(assembly_instructions), writer->output_file);
+
   return CODE_WRITER_SUCC;
 }
 
-/* Generates an assembly instruction to move the stack pointer to the
- * address of the top element in a VM stack, and copies it into a buffer
+/* Closes the output file */
+void code_writer_close(CodeWriter *writer)
+{
+  if (!writer)
+    return;
+
+  fclose(writer->output_file);
+
+  free(writer);
+}
+
+/* Generates an assembly instruction to move push the value stored in
+ * the data register to the top of the stack, update the sp value, and copies it into a buffer
  *
  * Returns a pointer to the last byte of the copied instruction in the buffer,
  * or NULL if the buffer is too small to hold the instruction
@@ -359,6 +433,110 @@ char *write_unary_operation(char *output_instruction,
   writen_bytes = snprintf(output_instruction,
                           output_instruction_size, "D=%cD",
                           operation == ARITHMETIC_LOGICAL_NEG ? '-' : '!');
+
+  if (writen_bytes > output_instruction_size)
+    return NULL;
+
+  /* Return pointer to last character */
+  return output_instruction + writen_bytes - 1;
+}
+
+/* Generates an assembly instruction for an arithmetic or
+ * bitwise operation between the data register and the memory
+ * register, and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_arithmetic_bitwise_operation(char *output_instruction,
+                                         size_t output_instruction_size,
+                                         ArithmeticLogicalCommandType operation)
+{
+  const char asm_instruction[] = "D=D%cM";
+  size_t writen_bytes = 0;
+
+  switch (operation) {
+    case ARITHMETIC_LOGICAL_ADD:
+      writen_bytes = snprintf(output_instruction, output_instruction_size,
+                              asm_instruction, '+');
+      break;
+    case ARITHMETIC_LOGICAL_SUB:
+      writen_bytes = snprintf(output_instruction, output_instruction_size,
+                              asm_instruction, '-');
+      break;
+    case ARITHMETIC_LOGICAL_AND:
+      writen_bytes = snprintf(output_instruction, output_instruction_size,
+                              asm_instruction, '&');
+      break;
+    case ARITHMETIC_LOGICAL_OR:
+      writen_bytes = snprintf(output_instruction, output_instruction_size,
+                              asm_instruction, '|');
+      break;
+    default:
+      return NULL;
+  }
+
+  if (writen_bytes > output_instruction_size)
+    return NULL;
+
+  /* Return pointer to last character */
+  return output_instruction + writen_bytes - 1;
+}
+
+/* Generates an assembly instruction for a boolean operation
+ * between the data register and the memory register,
+ * and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_boolean_operation(char *output_instruction,
+                              size_t output_instruction_size,
+                              ArithmeticLogicalCommandType operation,
+                              int boolean_count)
+{
+  /* Logic for boolean operations:
+   * 1. Compute x - y --> D = D - M
+   * 2. If operation == "==" and D == 0, then D = true --> D;JEQ
+   * 3. If operation == ">" and D > 0, then D = true --> D;JGT
+   * 4. If operation == "<" and D < 0, then D = true --> D;JLT
+   *
+   * true is D = -1 and false is D = 0
+   * boolean count is required to generate a unique boolean
+   * branch per call to this operation
+   *
+   */
+  const char asm_instruction[] = 
+    "D=D-M\n"
+    "@BOOLEAN_TRUE.%d\n"
+    "D;%s\n"
+    "D=0\n"
+    "@BOOLEAN_CONTINUE.%d\n"
+    "0;JMP\n"
+    "(BOOLEAN_TRUE.%d)\n"
+    "D=-1\n"
+    "(BOOLEAN_CONTINUE.%d)";
+  size_t writen_bytes = 0;
+
+  switch (operation) {
+    case ARITHMETIC_LOGICAL_EQ:
+      writen_bytes = snprintf(output_instruction, output_instruction_size,
+                              asm_instruction, boolean_count, "JEQ",
+                              boolean_count, boolean_count, boolean_count);
+      break;
+    case ARITHMETIC_LOGICAL_GT:
+      writen_bytes = snprintf(output_instruction, output_instruction_size,
+                              asm_instruction, boolean_count, "JGT",
+                              boolean_count, boolean_count, boolean_count);
+      break;
+    case ARITHMETIC_LOGICAL_LT:
+      writen_bytes = snprintf(output_instruction, output_instruction_size,
+                              asm_instruction, boolean_count, "JLT",
+                              boolean_count, boolean_count, boolean_count);
+      break;
+    default:
+      return NULL;
+  }
 
   if (writen_bytes > output_instruction_size)
     return NULL;
