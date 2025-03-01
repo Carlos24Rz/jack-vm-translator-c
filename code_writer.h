@@ -32,7 +32,8 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
  * the given push or pop command */
 CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
                                             CommandType cmd,
-                                            MemorySegment segment, int index);
+                                            MemorySegment segment,
+                                            int segment_index);
 
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer);

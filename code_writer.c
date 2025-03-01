@@ -84,6 +84,7 @@ static const MemorySegmentEntry
 struct CodeWriter
 {
   FILE *output_file;
+  const char *input_file;
   int boolean_op_count;
 };
 
@@ -151,6 +152,48 @@ char *write_boolean_operation(char *output_instruction,
                               size_t output_instruction_size,
                               ArithmeticLogicalCommandType operation,
                               int boolean_count);
+
+/* Generates an assembly instruction that stores a constant integer
+ * in the data register.
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+ char *write_constant_index(char *output_instruction,
+                            size_t output_instruction_size,
+                            int constant);
+
+/* Generates an assembly instruction that access a symbolic segment,
+ * and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+ char *write_symbol_segment(char *output_instruction,
+                            size_t output_instruction_size,
+                            MemorySegmentType type);
+
+/* Generates an assembly instruction that access a virtual segment,
+ * and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_virtual_segment(char *output_instruction,
+                            size_t output_instruction_size,
+                            MemorySegmentType type, int index);
+
+/* Generates an assembly instruction that access a static segment,
+ * and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_static_segment(char *output_instruction,
+                           size_t output_instruction_size,
+                           const char *filename,
+                           int index);
+
 /* End Internal Functions */
 
 /* Opens an output file and gets ready to write into it */
@@ -170,6 +213,7 @@ CodeWriter *code_writer_init(const char *output_filename)
   if (!new_writer) return NULL;
 
   new_writer->output_file = new_file;
+  new_writer->input_file = "FOO";
   new_writer->boolean_op_count = 0;
 
   return new_writer;
@@ -213,8 +257,8 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
   char *assembly_instruction_buf = assembly_instructions;
   int assembly_instruction_buf_size = sizeof(assembly_instructions);
   char *current_instruction_end = NULL;
-  
   int idx;
+
   assert(writer);
 
   if (!cmd) return CODE_WRITER_INVALID_ARITHMETIC_CMD;
@@ -239,15 +283,23 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
    * the stack, performing the operation, and pushing the new value
    * into the stack.
    *
-   * To remove a value of the stack:
+   * 1. Remove a value of the stack:
    *
    * @SP
    * M = M - 1 (RAM[SP - 1] Top element of stack and update SP value)
    * A = M
    *
    * D = M  ( Store top element of stack in D register )
+   *
+   * 2. Perform computation and store it in D Register
+   *
+   * 3. Push computed value to the top of the stack:
+   *
    * @SP
-   * M = M - 1 ( Update SP )
+   * A = M     (RAM[SP] Top element of the stack)
+   * M = D     ( Store computed value at the top of the stack )
+   * @SP
+   * M = M + 1  (Update SP)
    */
   
   /* Pop first operand from stack */
@@ -327,6 +379,140 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
 
   fwrite(assembly_instructions, sizeof(char),
          strlen(assembly_instructions), writer->output_file);
+
+  return CODE_WRITER_SUCC;
+}
+
+/* Writes to the output file the assembly code that implements
+ * the given push or pop command */
+CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
+                                            CommandType cmd,
+                                            MemorySegment segment,
+                                            int segment_index)
+{
+  MemorySegmentType segment_type;
+  char assembly_instructions[ASSEMBLY_INSTRUCTIONS_SIZE];
+  char *assembly_instruction_buf = assembly_instructions;
+  int assembly_instruction_buf_size = sizeof(assembly_instructions);
+  char *current_instruction_end = NULL;
+  int index;
+
+  assert(writer);
+
+  if (cmd != C_PUSH && cmd != C_POP) return CODE_WRITER_INVALID_PUSH_POP_CMD;
+  else if (!segment) return CODE_WRITER_INVALID_PUSH_POP_SEGMENT;
+
+  /* get type of segment type */
+  for (index = 0; index < MEMORY_SEGMENT_TABLE_SIZE; index++)
+  {
+    if (strlen(segment) == strlen(memory_segment_table[index].segment) &&
+        strcmp(segment, memory_segment_table[index].segment) == 0)
+    {
+      segment_type = memory_segment_table[index].type;
+      break;
+    }
+  }
+
+  if (index >= MEMORY_SEGMENT_TABLE_SIZE) return CODE_WRITER_INVALID_PUSH_POP_SEGMENT;
+  else if (segment_index < 0) return CODE_WRITER_INVALID_PUSH_POP_INDEX;
+
+  /* Translation logic
+   * It dependes based on a PUSH or POP operation:
+   * PUSH:
+   *   1. Get segment index and store it the D register
+   *      @SEGMENT_IDX
+   *      D = A
+   *   2. Get segment base address and add segment index (D register)
+   *      @SEGMENT_PTR
+   *      A=D+M
+   *      D=M  ( Get value at RAM[SEGMENT_BASE + IDX])
+   *   3. Store value in data register at the top of the stack.
+   * POP:
+   *   1. Get value at the top of the stack and store it
+   *      in a temp register (R13)
+   *      D=M
+   *      @R13
+   *      M = D
+   *   2. Get segment index and store it in the D register
+   *      @SEGMENT_IDX
+   *      D = A
+   *   3. Get segment base address and add segment index (D register)
+   *      @SEGMENT_PTR
+   *      A=D+M
+   *      D=A  ( Store address SEGMENT_BASE + IDX)
+   *      @R14
+   *      M = D (Store address in temp register )
+   *      @R13
+   *      D = M (Get previously stored popped stack value)
+   *      @R14
+   *      A = M 
+   *      M=D   (RAM[SEGMENT_BASE+IDX] = top_stack)
+   */
+   
+
+  switch (cmd)
+  {
+    case C_PUSH:
+      /* Store requested ram value in data register */
+      switch (segment_type)
+      {
+        /* Constant segment copies the integer value to the stack */
+        case MEMORY_SEGMENT_CONSTANT:
+          current_instruction_end =
+            write_constant_index(assembly_instruction_buf,
+                                 assembly_instruction_buf_size, segment_index);
+          break;
+        /* Static segment gets value from a static variable */
+        case MEMORY_SEGMENT_STATIC:
+          current_instruction_end =
+            write_static_segment(assembly_instruction_buf,
+                                 assembly_instruction_buf_size,
+                                 writer->input_file,
+                                 segment_index);
+          break;
+        case MEMORY_SEGMENT_ARGUMENT:
+        case MEMORY_SEGMENT_LOCAL:
+        case MEMORY_SEGMENT_THIS:
+        case MEMORY_SEGMENT_THAT:
+          /* Store segment index in data register */
+          current_instruction_end =
+            write_constant_index(assembly_instruction_buf,
+                                 assembly_instruction_buf_size, segment_index);
+          
+          UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                             assembly_instruction_buf_size, true);
+
+          /* Calculate address offset */
+          current_instruction_end =
+            write_symbol_segment(assembly_instruction_buf,
+                                 assembly_instruction_buf_size, segment_type);
+          break;
+        case MEMORY_SEGMENT_POINTER:
+        case MEMORY_SEGMENT_TEMP:
+          current_instruction_end =
+            write_virtual_segment(assembly_instruction_buf,
+                                  assembly_instruction_buf_size, segment_type,
+                                  segment_index);
+          break;
+      }
+      
+      UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                         assembly_instruction_buf_size, true);
+      
+      /* Push value at data register to the top of the stack */
+      current_instruction_end =
+        stack_push_element_assembly(assembly_instruction_buf,
+                                    assembly_instruction_buf_size);
+      
+      UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+        assembly_instruction_buf_size, false);
+      
+      break;
+    default:
+      break;
+  }
+
+  printf("Instruction:\n%s\n", assembly_instructions);
 
   return CODE_WRITER_SUCC;
 }
@@ -543,4 +729,146 @@ char *write_boolean_operation(char *output_instruction,
 
   /* Return pointer to last character */
   return output_instruction + writen_bytes - 1;
+}
+
+/* Generates an assembly instruction that stores a constant integer
+ * in the data register.
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_constant_index(char *output_instruction,
+                           size_t output_instruction_size,
+                           int constant)
+{
+  const char asm_instruction[] = 
+    "@%d\n"
+    "D=A";
+  size_t written_bytes = 0;
+
+  if (constant < 0) return NULL;
+
+  written_bytes = snprintf(output_instruction, output_instruction_size,
+                           asm_instruction, constant);
+
+  if (written_bytes > output_instruction_size)
+    return NULL;
+
+  /* Return pointer to last character */
+  return output_instruction + written_bytes - 1;
+}
+
+/* Generates an assembly instruction that access a symbolic segment,
+ * and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_symbol_segment(char *output_instruction,
+                           size_t output_instruction_size,
+                           MemorySegmentType type)
+{
+  const char asm_instruction[] = 
+    "@%s\n"
+    "A=D+M\n"
+    "D=M";
+  size_t written_bytes = 0;
+
+  switch (type)
+  {
+    case MEMORY_SEGMENT_ARGUMENT:
+      written_bytes = snprintf(output_instruction, output_instruction_size,
+                               asm_instruction, "ARG");
+      break;
+    case MEMORY_SEGMENT_LOCAL:
+      written_bytes = snprintf(output_instruction, output_instruction_size,
+                               asm_instruction, "LCL");
+      break;
+    case MEMORY_SEGMENT_THIS:
+      written_bytes = snprintf(output_instruction, output_instruction_size,
+                               asm_instruction, "THIS");
+      break;
+    case MEMORY_SEGMENT_THAT:
+      written_bytes = snprintf(output_instruction, output_instruction_size,
+                               asm_instruction, "THAT");
+      break;
+    default:
+      return NULL;
+  }
+
+  if (written_bytes > output_instruction_size) return NULL;
+
+  /* Return pointer to last character */
+  return output_instruction + written_bytes - 1;
+}
+
+/* Generates an assembly instruction that access a virtual segment,
+ * and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *write_virtual_segment(char *output_instruction,
+                            size_t output_instruction_size,
+                            MemorySegmentType type,
+                            int index)
+{
+  const char asm_instruction[] = 
+    "@R%d\n"
+    "D=M";
+    size_t written_bytes = 0;
+  
+  if (index < 0) return NULL;
+
+  switch (type)
+  {
+    case MEMORY_SEGMENT_POINTER:
+      if (index >= 2) return NULL;
+
+      /* Pointer segment starts at R3 */
+      written_bytes = snprintf(output_instruction, output_instruction_size,
+                               asm_instruction, 3 + index);
+      break;
+    case MEMORY_SEGMENT_TEMP:
+      if (index >= 8) return NULL;
+
+      /* Temp segment starts at R5 */
+      written_bytes = snprintf(output_instruction, output_instruction_size,
+                               asm_instruction, 5 + index);
+      break;
+    default:
+      return NULL;
+  }
+
+  if (written_bytes > output_instruction_size) return NULL;
+
+  /* Return pointer to last character */
+  return output_instruction + written_bytes - 1;
+}
+
+/* Generates an assembly instruction that access a static segment,
+ * and copies it into a buffer
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+ char *write_static_segment(char *output_instruction,
+                            size_t output_instruction_size,
+                            const char *filename,
+                            int index)
+{
+  const char asm_instruction[] = 
+    "@%s.%d\n"
+    "D=M";
+  size_t written_bytes = 0;
+
+  if (index < 0 || !filename ) return NULL;
+
+  written_bytes = snprintf(output_instruction, output_instruction_size,
+                           asm_instruction, filename, index);
+  
+  if (written_bytes > output_instruction_size) return NULL;
+
+  /* Return pointer to last character */
+  return output_instruction + written_bytes - 1;
 }
