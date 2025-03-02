@@ -6,6 +6,9 @@
 #include <stddef.h>
 #include "translator_common.h"
 
+#define PARSED_COMMAND_INSTRUCTION_MAX_LENGTH 4
+#define PARSED_COMMAND_ARG1_MAX_LENGTH 8
+
 /* Encapsulates parsing logic */
 typedef struct Parser Parser;
 
@@ -14,6 +17,9 @@ Parser *parser_init(const char* input_file);
 
 /* Checks if there are more lines in the input */
 bool parser_has_more_lines(Parser *parser);
+
+/* Returns the current line in the input file */
+unsigned int parser_get_line_number(Parser *parser);
 
 /* Reads the next command from the input and makes it the current command */
 bool parser_advance(Parser *parser);

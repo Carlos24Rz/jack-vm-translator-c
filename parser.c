@@ -8,8 +8,7 @@
 #include "translator_common.h"
 #include "parser.h"
 
-#define PARSED_COMMAND_INSTRUCTION_MAX_LENGTH 4
-#define PARSED_COMMAND_ARG1_MAX_LENGTH 8
+
 typedef struct ParsedCommand
 {
   CommandType type;
@@ -50,6 +49,14 @@ bool parser_has_more_lines(Parser *parser)
   assert(parser);
 
   return !feof(parser->input_file);
+}
+
+/* Returns the current line in the input file */
+unsigned int parser_get_line_number(Parser *parser)
+{
+  assert(parser);
+
+  return parser->input_file_line;
 }
 
 #define CURRENT_LINE_MAX_LENGTH 256
