@@ -226,6 +226,16 @@ char *get_in_temp_register(char *output_instruction,
 char *store_in_memory_register(char *output_instruction,
                                size_t output_instruction_size);
 
+/* Generates an assembly instruction to move to a temp register
+ * and copies it into a buffer.
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *move_to_temp_register(char *output_instruction,
+                            size_t output_instruction_size,
+                            int register_idx);
+
 /* End Internal Functions */
 
 /* Opens an output file and gets ready to write into it */
@@ -361,6 +371,14 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
   UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
                      assembly_instruction_buf_size, true);
 
+  /* Store operand in a temp register R13 */
+  current_instruction_end = store_in_temp_register(assembly_instruction_buf,
+                                                   assembly_instruction_buf_size,
+                                                   13);
+
+  UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                     assembly_instruction_buf_size, true);
+
   /* Perform computation */
   switch (command_type)
   {
@@ -379,6 +397,21 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
         stack_get_top_element_assembly(assembly_instruction_buf,
                                        assembly_instruction_buf_size);
       
+      UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                         assembly_instruction_buf_size, true);
+      
+      /* Store second operand in data register */
+      current_instruction_end = store_in_register(assembly_instruction_buf,
+                                                  assembly_instruction_buf_size);
+
+      UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                         assembly_instruction_buf_size, true);
+      
+      /* Move to temp register (R13) where first operand was stored */
+      current_instruction_end = move_to_temp_register(assembly_instruction_buf,
+                                                      assembly_instruction_buf_size,
+                                                      13);
+        
       UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
                          assembly_instruction_buf_size, true);
       
@@ -780,6 +813,32 @@ char *store_in_temp_register(char *output_instruction,
 
   if (writen_bytes > output_instruction_size) return NULL;
   
+  /* Return pointer to last character */
+  return output_instruction + writen_bytes - 1;
+}
+
+/* Generates an assembly instruction to move to a temp register
+ * and copies it into a buffer.
+ *
+ * Returns a pointer to the last byte of the copied instruction in the buffer,
+ * or NULL if the buffer is too small to hold the instruction
+ */
+char *move_to_temp_register(char *output_instruction,
+                            size_t output_instruction_size,
+                            int register_idx)
+{
+  const char asm_instruction[] =
+    "@R%d";
+  size_t writen_bytes = 0;
+
+  /* Temp registers are R13, R14, R15 */
+  if (register_idx < 13 || register_idx > 15) return NULL;
+
+  writen_bytes = snprintf(output_instruction, output_instruction_size,
+                          asm_instruction, register_idx);
+
+  if (writen_bytes > output_instruction_size) return NULL;
+
   /* Return pointer to last character */
   return output_instruction + writen_bytes - 1;
 }
