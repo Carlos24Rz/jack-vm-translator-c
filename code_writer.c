@@ -309,6 +309,18 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
   if (idx >= ARITHMETIC_LOGICAL_CMD_TABLE_SIZE)
     return CODE_WRITER_INVALID_ARITHMETIC_CMD;
 
+  /* write instruction comment */
+  current_instruction_end = assembly_instruction_buf +
+                            snprintf(assembly_instruction_buf,
+                                     assembly_instruction_buf_size,
+                                     "// %s",
+                                      arithmetic_logical_cmd_table[command_type]
+                                        .command)
+                            - 1;
+
+  UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                     assembly_instruction_buf_size, true);  
+
   /* Translation logic
    *
    * All operations require popping at least 1 value of
@@ -407,7 +419,10 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
                                 assembly_instruction_buf_size);
   
   UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
-                     assembly_instruction_buf_size, false);
+                     assembly_instruction_buf_size, true);
+
+  /* Null terminate string */
+  *assembly_instruction_buf = '\0';
 
   fwrite(assembly_instructions, sizeof(char),
          strlen(assembly_instructions), writer->output_file);
@@ -447,6 +462,19 @@ CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
 
   if (index >= MEMORY_SEGMENT_TABLE_SIZE) return CODE_WRITER_INVALID_PUSH_POP_SEGMENT;
   else if (segment_index < 0) return CODE_WRITER_INVALID_PUSH_POP_INDEX;
+
+  /* write instruction comment */
+  current_instruction_end = assembly_instruction_buf +
+                            snprintf(assembly_instruction_buf,
+                                     assembly_instruction_buf_size,
+                                     "// %s %s %d",
+                                     cmd == C_PUSH ? "push" : "pop",
+                                     memory_segment_table[segment_type].segment,
+                                     segment_index)
+                            - 1;
+
+  UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
+                     assembly_instruction_buf_size, true);                          
 
   /* Translation logic
    * It dependes based on a PUSH or POP operation:
@@ -636,7 +664,10 @@ CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
   }
 
   UPDATE_INSTRUCTION(assembly_instruction_buf, current_instruction_end,
-                     assembly_instruction_buf_size, false);
+                     assembly_instruction_buf_size, true);
+  
+  /* Null terminate string */
+  *assembly_instruction_buf = '\0';
 
   fwrite(assembly_instructions, sizeof(char),
          strlen(assembly_instructions), writer->output_file);
