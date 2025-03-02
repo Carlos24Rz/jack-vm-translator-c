@@ -11,5 +11,8 @@ vmtranslator.o: vmtranslator.c
 code_writer.o: code_writer.c code_writer.h translator_common.h
 	$(CC) -c code_writer.c -o code_writer.o
 
+parser.o: parser.c parser.h translator_common.h
+	$(CC) -c parser.c -o parser.o
+
 clean:
-	rm -f vmtranslator vmtranslator.o code_writer.o
+	rm -f vmtranslator vmtranslator.o code_writer.o parser.o

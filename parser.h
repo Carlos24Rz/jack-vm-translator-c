@@ -16,7 +16,7 @@ Parser *parser_init(const char* input_file);
 bool parser_has_more_lines(Parser *parser);
 
 /* Reads the next command from the input and makes it the current command */
-void parser_advance();
+bool parser_advance(Parser *parser);
 
 /* Returns the type of the current command */
 CommandType parser_command_type(Parser *parser);
@@ -25,7 +25,7 @@ CommandType parser_command_type(Parser *parser);
 void parser_arg1(Parser *parser, char *output, size_t output_size);
 
 /* Retuns the second argument of the current command */
-void parser_arg2(Parser *parser, int *output);
+void parser_arg2(Parser *parser, unsigned int *output);
 
 /* Closes input file and frees parser */
 void parser_fini(Parser *parser);
