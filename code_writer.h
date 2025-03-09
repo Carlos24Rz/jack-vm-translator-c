@@ -35,6 +35,37 @@ CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
                                             MemorySegment segment,
                                             int segment_index);
 
+/* Write to the out file the assembly code that
+ * effects the function command */
+CodeWriterStatus code_writer_write_function(CodeWriter *writer,
+                                            const char *function_name,
+                                            unsigned int function_name_length,
+                                            unsigned int n_vars);
+
+/* Write to the output file the assembly code that
+ * setups a function call */
+CodeWriterStatus code_writer_write_call(CodeWriter *writer,
+                                        const char *function_name,
+                                        unsigned int n_args);
+
+/* Write to the output file the assembly code that setups a function
+ * return command */
+CodeWriterStatus code_writer_write_return(CodeWriter *Writer);
+
+/* Write to the output file that assembly code that create a label */
+CodeWriterStatus code_writer_write_label(CodeWriter *writer,
+                                         const char *label);
+
+/* Write to the output file that assembly code that
+ * effects the goto command */
+CodeWriterStatus code_writer_write_goto(CodeWriter *writer,
+                                        const char *label);
+        
+/* Write to the output file that assembly code that
+ * effects the if-goto command */
+CodeWriterStatus code_writer_write_if(CodeWriter *writer,
+                                      const char *label);
+
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer);
 

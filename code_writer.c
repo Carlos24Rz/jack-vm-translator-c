@@ -80,13 +80,16 @@ static const MemorySegmentEntry
   { MEMORY_SEGMENT_TEMP, "temp" },
 };
 
+#define CURRENT_FUNCTION_STR_MAX_LENGTH 256
 /* Encapsulates the logic to translate and write a parsed VM command
  * into Hack assembly code */
 struct CodeWriter
 {
   FILE *output_file;
   const char *input_file;
+  char current_function[CURRENT_FUNCTION_STR_MAX_LENGTH + 1];
   unsigned int boolean_op_count;
+  unsigned int fn_call_count;
 };
 
 /* Internal Functions */
@@ -170,7 +173,9 @@ CodeWriter *code_writer_init(const char *output_filename)
 
   new_writer->output_file = new_file;
   new_writer->input_file = "FOO";
+  strncpy(new_writer->current_function, "", sizeof(new_writer->current_function));
   new_writer->boolean_op_count = 0;
+  new_writer->fn_call_count = 0;
 
   return new_writer;
 }
@@ -249,8 +254,6 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
         /* Boolean operations (Require more processing )*/
         default:
           write_boolean_operation(writer, command_type);
-          /* Increase boolean count */
-          writer->boolean_op_count++;
           break;
       }
       break;
@@ -312,6 +315,227 @@ CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
   return CODE_WRITER_SUCC;
 }
 
+/* Write to the out file the assembly code that
+ * effects the function command */
+CodeWriterStatus code_writer_write_function(CodeWriter *writer,
+                                            const char *function_name,
+                                            unsigned int function_name_length,
+                                            unsigned int n_vars)
+{
+  int i;
+  assert(writer);
+
+  if (function_name_length > sizeof(writer->current_function) - 1)
+    return CODE_WRITER_FAIL_WRITE;
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// function %s %d\n", function_name, n_vars);
+
+  /* Copy current function name */
+  strncpy(writer->current_function, function_name, function_name_length);
+
+  /* Create function label */
+  fprintf(writer->output_file, "(%s.%s)\n", writer->input_file, function_name);
+
+  /* Initialize local variables to zero*/
+  fprintf(writer->output_file, "D=0\n");
+  for (i = 0; i < n_vars; i++)
+  {
+    write_push_to_stack_operation(writer);
+  }
+
+  return CODE_WRITER_SUCC;
+}
+
+/* Write to the output file the assembly code that
+ * setups a function call */
+ CodeWriterStatus code_writer_write_call(CodeWriter *writer,
+                                         const char *function_name,
+                                         unsigned int n_args)
+{
+  assert(writer);
+
+  if (!function_name)
+    return CODE_WRITER_FAIL_WRITE;
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// call %s %d\n", function_name, n_args);
+
+  /* Save current stack location as callee ARG segment in temp register R13 */
+  fprintf(writer->output_file, "@SP\nD=M\n");
+
+  write_in_temp_register(writer, 0);
+
+  /* Save return address and push it to stack */
+  fprintf(writer->output_file, "@%s.%s$ret%d\nD=A\n",
+          writer->input_file, writer->current_function, writer->fn_call_count);
+
+  write_push_to_stack_operation(writer);
+
+  /* Save local segment and push it to stack */
+  fprintf(writer->output_file, "@LCL\nD=M\n");
+
+  write_push_to_stack_operation(writer);
+
+  /* Save arg segment and push it to stack */
+  fprintf(writer->output_file, "@ARG\nD=M\n");
+
+  write_push_to_stack_operation(writer);
+
+  /* Save this segment and push it to stack */
+  fprintf(writer->output_file, "@THIS\nD=M\n");
+
+  write_push_to_stack_operation(writer);
+
+  /* Save this segment and push it to stack */
+  fprintf(writer->output_file, "@THAT\nD=M\n");
+
+  write_push_to_stack_operation(writer);
+
+  /* Set current stack position as the callee local segment */
+  fprintf(writer->output_file, "@SP\nD=M\n@LCL\nM=D\n");
+
+  /* Retrieve ARG location in temp register*/
+  write_follow_segment_pointer(writer, MEMORY_SEGMENT_CONSTANT, 13);
+  fprintf(writer->output_file, "D=M\n");
+
+  /* Compute ARG = ARG - nArgs */
+  write_follow_segment_pointer(writer, MEMORY_SEGMENT_CONSTANT, n_args);
+  fprintf(writer->output_file, "D=D-A\n@ARG\nM=D\n");
+
+  /* goto function */
+  fprintf(writer->output_file, "@%s.%s\n0;JMP\n", writer->input_file, function_name);
+
+  /* Create return label */
+  fprintf(writer->output_file, "(%s.%s$ret%d)\n",
+          writer->input_file,
+          writer->current_function,
+          writer->fn_call_count);
+  
+  /* Increment call fount */
+  writer->fn_call_count++;         
+
+  return CODE_WRITER_SUCC;
+}
+
+/* Write to the output file the assembly code that setups a function
+ * return command */
+CodeWriterStatus code_writer_write_return(CodeWriter *writer)
+{
+  assert(writer);
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// return\n");
+
+  /* Set return value in ARG[0] */
+  write_pop_from_stack_operation(writer);
+
+  fprintf(writer->output_file, "@ARG\nA=M\nM=D\n");
+
+  /* Reposition caller working stack at ARG + 1*/
+  fprintf(writer->output_file, "D=A+1\n@SP\nM=D\n");
+
+  /* Get local segment address */
+  fprintf(writer->output_file, "@LCL\nD=M\n");
+
+  /* Store local segment in temp register R13 */
+  write_in_temp_register(writer, 0);
+
+  /* Restore caller THAT segment */
+  fprintf(writer->output_file, "AM=M-1\nD=M\n@THAT\nM=D\n");
+
+  /* Restore caller THIS segment */
+  fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@THIS\nM=D\n");
+
+  /* Restore caller ARG segment */
+  fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@ARG\nM=D\n");
+
+  /* Restore caller LCL segment */
+  fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@LCL\nM=D\n");
+
+  /* Get return address and jump back */
+  fprintf(writer->output_file, "@R13\nAM=M-1\nA=M\n0;JMP\n");
+
+  return CODE_WRITER_SUCC;
+}
+
+/* Write to the output file that assembly code that create a label */
+CodeWriterStatus code_writer_write_label(CodeWriter *writer,
+                                         const char *label)
+{
+  assert(writer);
+
+  if (!label)
+    return CODE_WRITER_FAIL_WRITE;
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// label %s\n", label);
+
+  fprintf(writer->output_file, "(%s.%s$%s)\n",
+                               writer->input_file,
+                               writer->current_function,
+                               label);
+  
+  return CODE_WRITER_SUCC;
+}
+
+/* Write to the output file that assembly code that
+ * effects the goto command */
+CodeWriterStatus code_writer_write_goto(CodeWriter *writer,
+                                        const char *label)
+{
+  assert(writer);
+
+  if (!label)
+    return CODE_WRITER_FAIL_WRITE;
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// goto %s\n", label);
+ 
+  fprintf(writer->output_file, "@%s.%s$%s\n0;JMP\n",
+                               writer->input_file,
+                               writer->current_function,
+                               label);
+ 
+  return CODE_WRITER_SUCC;
+}
+
+/* Write to the output file that assembly code that
+ * effects the if-goto command */
+CodeWriterStatus code_writer_write_if(CodeWriter *writer,
+                                      const char *label)
+{
+  assert(writer);
+
+  if (!label)
+    return CODE_WRITER_FAIL_WRITE;
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// if-goto %s\n", label);
+
+  /* Pop top value in stack */
+  write_pop_from_stack_operation(writer);
+
+  /* Store top value in temp register R13 */
+  write_in_temp_register(writer, 0);
+
+  /* Store O in data register */
+  fprintf(writer->output_file, "D=0\n");
+
+  /* Compare if value == 0, to get true (-1) or false  (0)
+   * False implies the value in the stack is not zero,
+   * so we should jump to the label location */
+  write_boolean_operation(writer, ARITHMETIC_LOGICAL_EQ);
+
+  /* Jump to label if the value is not zero */
+  fprintf(writer->output_file, "@%s.%s$%s\nD;JEQ\n",
+                               writer->input_file,
+                               writer->current_function,
+                               label);
+  
+  return CODE_WRITER_SUCC;
+}
+
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer)
 {
@@ -322,6 +546,10 @@ void code_writer_close(CodeWriter *writer)
 
   free(writer);
 }
+
+/*
+ * INTERNAL FUNCTIONS
+ */
 
 bool write_push_operation(CodeWriter *writer,
                           MemorySegmentType segment_type,
@@ -535,6 +763,9 @@ bool write_boolean_operation(CodeWriter *writer,
   {
     return false;
   }
+
+  /* Increase boolean count */
+  writer->boolean_op_count++;
 
   return true;
 }
