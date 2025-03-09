@@ -453,7 +453,7 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
   fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@LCL\nM=D\n");
 
   /* Get return address and jump back */
-  fprintf(writer->output_file, "@R13\nAM=M-1\nA=M\n0;JMP");
+  fprintf(writer->output_file, "@R13\nAM=M-1\nA=M\n0;JMP\n");
 
   return CODE_WRITER_SUCC;
 }
