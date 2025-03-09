@@ -467,7 +467,7 @@ CodeWriterStatus code_writer_write_label(CodeWriter *writer,
   if (!label)
     return CODE_WRITER_FAIL_WRITE;
 
-  fprintf(writer->output_file, "(%s.%s.%s)\n",
+  fprintf(writer->output_file, "(%s.%s$%s)\n",
                                writer->input_file,
                                writer->current_function,
                                label);
@@ -485,11 +485,36 @@ CodeWriterStatus code_writer_write_goto(CodeWriter *writer,
   if (!label)
     return CODE_WRITER_FAIL_WRITE;
  
-  fprintf(writer->output_file, "@%s.%s.%s\n0;JMP\n",
+  fprintf(writer->output_file, "@%s.%s$%s\n0;JMP\n",
                                writer->input_file,
                                writer->current_function,
                                label);
  
+  return CODE_WRITER_SUCC;
+}
+
+/* Write to the output file that assembly code that
+ * effects the if-goto command */
+CodeWriterStatus code_writer_write_if(CodeWriter *writer,
+                                      const char *label)
+{
+  assert(writer);
+
+  if (!label)
+    return CODE_WRITER_FAIL_WRITE;
+
+  /* Pop top value in stack */
+  write_pop_from_stack_operation(writer);
+
+  /* Apply negation operation */
+  fprintf(writer->output_file, "D=!D\n");
+
+  /* Jump to label if the value is not zero */
+  fprintf(writer->output_file, "@%s.%s$%s\nD;JEQ\n",
+                               writer->input_file,
+                               writer->current_function,
+                               label);
+  
   return CODE_WRITER_SUCC;
 }
 

@@ -60,6 +60,11 @@ CodeWriterStatus code_writer_write_label(CodeWriter *writer,
  * effects the goto command */
 CodeWriterStatus code_writer_write_goto(CodeWriter *writer,
                                         const char *label);
+        
+/* Write to the output file that assembly code that
+ * effects the if-goto command */
+CodeWriterStatus code_writer_write_if(CodeWriter *writer,
+                                      const char *label);
 
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer);
