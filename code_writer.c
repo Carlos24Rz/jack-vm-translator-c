@@ -80,12 +80,14 @@ static const MemorySegmentEntry
   { MEMORY_SEGMENT_TEMP, "temp" },
 };
 
+#define CURRENT_FUNCTION_STR_MAX_LENGTH 256
 /* Encapsulates the logic to translate and write a parsed VM command
  * into Hack assembly code */
 struct CodeWriter
 {
   FILE *output_file;
   const char *input_file;
+  char current_function[CURRENT_FUNCTION_STR_MAX_LENGTH + 1];
   unsigned int boolean_op_count;
 };
 
@@ -170,6 +172,7 @@ CodeWriter *code_writer_init(const char *output_filename)
 
   new_writer->output_file = new_file;
   new_writer->input_file = "FOO";
+  strncpy(new_writer->current_function, "", sizeof(new_writer->current_function));
   new_writer->boolean_op_count = 0;
 
   return new_writer;
@@ -307,6 +310,35 @@ CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
     default:
       /* write pop operation */
       write_pop_operation(writer, segment_type, segment_index);
+  }
+
+  return CODE_WRITER_SUCC;
+}
+
+/* Write to the out file the assembly code that
+ * effects the function command */
+CodeWriterStatus code_writer_write_function(CodeWriter *writer,
+                                            const char *function_name,
+                                            unsigned int function_name_length,
+                                            unsigned int n_vars)
+{
+  int i;
+  assert(writer);
+
+  if (function_name_length > sizeof(writer->current_function) - 1)
+    return CODE_WRITER_FAIL_WRITE;
+
+  /* Copy current function name */
+  strncpy(writer->current_function, function_name, function_name_length);
+
+  /* Create function label */
+  fprintf(writer->output_file, "(%s.%s)\n", writer->input_file, writer->current_function);
+
+  /* Initialize local variables to zero*/
+  fprintf(writer->output_file, "D=0\n");
+  for (i = 0; i < n_vars; i++)
+  {
+    write_push_to_stack_operation(writer);
   }
 
   return CODE_WRITER_SUCC;

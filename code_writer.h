@@ -35,6 +35,13 @@ CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
                                             MemorySegment segment,
                                             int segment_index);
 
+/* Write to the out file the assembly code that
+ * effects the function command */
+CodeWriterStatus code_writer_write_function(CodeWriter *writer,
+                                            const char *function_name,
+                                            unsigned int function_name_length,
+                                            unsigned int n_vars);
+
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer);
 
