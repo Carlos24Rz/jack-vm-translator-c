@@ -90,6 +90,14 @@ bool parser_advance(Parser *parser)
   {
     parser->input_file_line++;
 
+    /* Remove comment */
+    end_ptr = strstr(ptr, "//");
+
+    if (end_ptr)
+    {
+      *end_ptr = '\0';
+    }
+
     /* Remove leading whitespace */
     while (*ptr != '\0' && isspace(*ptr)) ptr++;
 
@@ -103,8 +111,6 @@ bool parser_advance(Parser *parser)
     *(end_ptr + 1) = '\0';
 
     strcpy(current_line, ptr);
-
-    if (strspn(current_line, "/") == 2) continue;
 
     break;
   }
@@ -141,6 +147,19 @@ bool parser_advance(Parser *parser)
     }
 
     parser->current_command.type = C_LABEL;
+    
+    strncpy(parser->current_command.arg1, parsed_label, sizeof(parser->current_command.arg1));
+  }
+  else if (sscanf(current_line, "if-goto %32s", parsed_label) == 1)
+  {
+    /* validate label */
+    if (!is_label_valid(parsed_label))
+    {
+      fprintf(stderr, "parser: syntax error at line %d\n", parser->input_file_line);
+      return false;
+    }
+
+    parser->current_command.type = C_IF;
     
     strncpy(parser->current_command.arg1, parsed_label, sizeof(parser->current_command.arg1));
   }
