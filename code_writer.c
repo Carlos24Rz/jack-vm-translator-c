@@ -475,6 +475,23 @@ CodeWriterStatus code_writer_write_label(CodeWriter *writer,
   return CODE_WRITER_SUCC;
 }
 
+/* Write to the output file that assembly code that
+ * effects the goto command */
+CodeWriterStatus code_writer_write_goto(CodeWriter *writer,
+                                        const char *label)
+{
+  assert(writer);
+
+  if (!label)
+    return CODE_WRITER_FAIL_WRITE;
+ 
+  fprintf(writer->output_file, "@%s.%s.%s\n0;JMP\n",
+                               writer->input_file,
+                               writer->current_function,
+                               label);
+ 
+  return CODE_WRITER_SUCC;
+}
 
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer)
