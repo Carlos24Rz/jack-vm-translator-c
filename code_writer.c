@@ -458,6 +458,24 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
   return CODE_WRITER_SUCC;
 }
 
+/* Write to the output file that assembly code that create a label */
+CodeWriterStatus code_writer_write_label(CodeWriter *writer,
+                                         const char *label)
+{
+  assert(writer);
+
+  if (!label)
+    return CODE_WRITER_FAIL_WRITE;
+
+  fprintf(writer->output_file, "(%s.%s.%s)\n",
+                               writer->input_file,
+                               writer->current_function,
+                               label);
+  
+  return CODE_WRITER_SUCC;
+}
+
+
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer)
 {

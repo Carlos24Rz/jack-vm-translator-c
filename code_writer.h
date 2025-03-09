@@ -52,6 +52,10 @@ CodeWriterStatus code_writer_write_call(CodeWriter *writer,
  * return command */
 CodeWriterStatus code_writer_write_return(CodeWriter *Writer);
 
+/* Write to the output file that assembly code that create a label */
+CodeWriterStatus code_writer_write_label(CodeWriter *writer,
+                                         const char *label);
+
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer);
 
