@@ -254,8 +254,6 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
         /* Boolean operations (Require more processing )*/
         default:
           write_boolean_operation(writer, command_type);
-          /* Increase boolean count */
-          writer->boolean_op_count++;
           break;
       }
       break;
@@ -518,8 +516,16 @@ CodeWriterStatus code_writer_write_if(CodeWriter *writer,
   /* Pop top value in stack */
   write_pop_from_stack_operation(writer);
 
-  /* Apply negation operation */
-  fprintf(writer->output_file, "D=!D\n");
+  /* Store top value in temp register R13 */
+  write_in_temp_register(writer, 0);
+
+  /* Store O in data register */
+  fprintf(writer->output_file, "D=0\n");
+
+  /* Compare if value == 0, to get true (-1) or false  (0)
+   * False implies the value in the stack is not zero,
+   * so we should jump to the label location */
+  write_boolean_operation(writer, ARITHMETIC_LOGICAL_EQ);
 
   /* Jump to label if the value is not zero */
   fprintf(writer->output_file, "@%s.%s$%s\nD;JEQ\n",
@@ -757,6 +763,9 @@ bool write_boolean_operation(CodeWriter *writer,
   {
     return false;
   }
+
+  /* Increase boolean count */
+  writer->boolean_op_count++;
 
   return true;
 }
