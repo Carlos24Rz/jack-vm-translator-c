@@ -19,7 +19,10 @@ int main(int argc, char *argv[])
   CodeWriterStatus err;
   char current_arithmetic_instruction[PARSED_COMMAND_INSTRUCTION_MAX_LENGTH + 1];
   char current_segment[PARSED_COMMAND_ARG1_MAX_LENGTH + 1];
+  char current_label[PARSED_COMMAND_LABEL_MAX_LENGTH + 1];
+  char current_function[PARSED_COMMAND_FUNCTION_NAME_MAX_LENGTH + 1];
   unsigned int current_index;
+  unsigned int current_function_nargs;
 
   if (argc == 1)
   {
@@ -58,6 +61,60 @@ int main(int argc, char *argv[])
     current_command_type = parser_command_type(parser);
 
     switch (current_command_type) {
+      case C_LABEL:
+        parser_arg1(parser, current_label, sizeof(current_label));
+  
+        /* Translate instruction */
+        err = code_writer_write_label(writer, current_label);
+  
+        if (err != CODE_WRITER_SUCC)
+          fprintf(stderr, "Failed to translate instruction at line %u, error: %d\n", parser_get_line_number(parser), err);
+        break;
+      case C_IF:
+        parser_arg1(parser, current_label, sizeof(current_label));
+
+        /* Translate instruction */
+        err = code_writer_write_if(writer, current_label);
+
+        if (err != CODE_WRITER_SUCC)
+          fprintf(stderr, "Failed to translate instruction at line %u, error: %d\n", parser_get_line_number(parser), err);
+        break;
+      case C_GOTO:
+        parser_arg1(parser, current_label, sizeof(current_label));
+
+        /* Translate instruction */
+        err = code_writer_write_goto(writer, current_label);
+
+        if (err != CODE_WRITER_SUCC)
+          fprintf(stderr, "Failed to translate instruction at line %u, error: %d\n", parser_get_line_number(parser), err);
+        break;
+      case C_FUNCTION:
+        parser_arg1(parser, current_function, sizeof(current_function));
+        parser_arg2(parser, &current_function_nargs);
+  
+        /* Translate instruction */
+        err = code_writer_write_function(writer, current_function, sizeof(current_function), current_function_nargs);
+  
+        if (err != CODE_WRITER_SUCC)
+          fprintf(stderr, "Failed to translate instruction at line %u, error: %d\n", parser_get_line_number(parser), err);
+        break;
+      case C_CALL:
+        parser_arg1(parser, current_function, sizeof(current_function));
+        parser_arg2(parser, &current_function_nargs);
+  
+        /* Translate instruction */
+        err = code_writer_write_call(writer, current_function, current_function_nargs);
+  
+        if (err != CODE_WRITER_SUCC)
+          fprintf(stderr, "Failed to translate instruction at line %u, error: %d\n", parser_get_line_number(parser), err);
+        break;
+      case C_RETURN:
+        /* Translate instruction */
+        err = code_writer_write_return(writer);
+
+        if (err != CODE_WRITER_SUCC)
+          fprintf(stderr, "Failed to translate instruction at line %u, error: %d\n", parser_get_line_number(parser), err);
+        break;
       case C_ARITHMETIC:
         parser_arg1(parser, current_arithmetic_instruction, sizeof(current_arithmetic_instruction));
 

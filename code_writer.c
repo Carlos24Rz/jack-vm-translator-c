@@ -426,6 +426,9 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
 {
   assert(writer);
 
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// return\n");
+
   /* Set return value in ARG[0] */
   write_pop_from_stack_operation(writer);
 
@@ -467,6 +470,9 @@ CodeWriterStatus code_writer_write_label(CodeWriter *writer,
   if (!label)
     return CODE_WRITER_FAIL_WRITE;
 
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// label %s\n", label);
+
   fprintf(writer->output_file, "(%s.%s$%s)\n",
                                writer->input_file,
                                writer->current_function,
@@ -484,6 +490,9 @@ CodeWriterStatus code_writer_write_goto(CodeWriter *writer,
 
   if (!label)
     return CODE_WRITER_FAIL_WRITE;
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// goto %s\n", label);
  
   fprintf(writer->output_file, "@%s.%s$%s\n0;JMP\n",
                                writer->input_file,
@@ -502,6 +511,9 @@ CodeWriterStatus code_writer_write_if(CodeWriter *writer,
 
   if (!label)
     return CODE_WRITER_FAIL_WRITE;
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// if-goto %s\n", label);
 
   /* Pop top value in stack */
   write_pop_from_stack_operation(writer);

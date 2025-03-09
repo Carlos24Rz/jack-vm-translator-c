@@ -127,7 +127,7 @@ bool parser_advance(Parser *parser)
    * Otherwise, segment and index must be present,
    * and if the instruction the instruction could be "push" or "pop".
    */
-  if (sscanf(current_line, "return") == 1)
+  if (strcmp(current_line, "return") == 0)
   {
     parser->current_command.type = C_RETURN;
   }
@@ -179,7 +179,7 @@ bool parser_advance(Parser *parser)
       fprintf(stderr, "parser: syntax error at line %d\n", parser->input_file_line);
       return false;
     }
-    
+
     parser->current_command.type = C_CALL;
     
     strncpy(parser->current_command.arg1, parsed_function, sizeof(parser->current_command.arg1));
