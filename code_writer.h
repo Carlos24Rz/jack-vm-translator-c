@@ -42,11 +42,15 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
                                             unsigned int function_name_length,
                                             unsigned int n_vars);
 
-/* Write tothe output file the assembly code that
+/* Write to the output file the assembly code that
  * setups a function call */
 CodeWriterStatus code_writer_write_call(CodeWriter *writer,
                                         const char *function_name,
                                         unsigned int n_args);
+
+/* Write to the output file the assembly code that setups a function
+ * return command */
+CodeWriterStatus code_writer_write_return(CodeWriter *Writer);
 
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer);

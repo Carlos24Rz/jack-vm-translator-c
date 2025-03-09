@@ -420,6 +420,44 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   return CODE_WRITER_SUCC;
 }
 
+/* Write to the output file the assembly code that setups a function
+ * return command */
+CodeWriterStatus code_writer_write_return(CodeWriter *writer)
+{
+  assert(writer);
+
+  /* Set return value in ARG[0] */
+  write_pop_from_stack_operation(writer);
+
+  fprintf(writer->output_file, "@ARG\nA=M\nM=D\n");
+
+  /* Reposition caller working stack at ARG + 1*/
+  fprintf(writer->output_file, "D=A+1\n@SP\nM=D\n");
+
+  /* Get local segment address */
+  fprintf(writer->output_file, "@LCL\nD=M\n");
+
+  /* Store local segment in temp register R13 */
+  write_in_temp_register(writer, 0);
+
+  /* Restore caller THAT segment */
+  fprintf(writer->output_file, "AM=M-1\nD=M\n@THAT\nM=D\n");
+
+  /* Restore caller THIS segment */
+  fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@THIS\nM=D\n");
+
+  /* Restore caller ARG segment */
+  fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@ARG\nM=D\n");
+
+  /* Restore caller LCL segment */
+  fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@LCL\nM=D\n");
+
+  /* Get return address and jump back */
+  fprintf(writer->output_file, "@R13\nAM=M-1\nA=M\n0;JMP");
+
+  return CODE_WRITER_SUCC;
+}
+
 /* Closes the output file */
 void code_writer_close(CodeWriter *writer)
 {
@@ -430,6 +468,10 @@ void code_writer_close(CodeWriter *writer)
 
   free(writer);
 }
+
+/*
+ * INTERNAL FUNCTIONS
+ */
 
 bool write_push_operation(CodeWriter *writer,
                           MemorySegmentType segment_type,
