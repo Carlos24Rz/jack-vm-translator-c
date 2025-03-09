@@ -7,7 +7,9 @@
 #include "translator_common.h"
 
 #define PARSED_COMMAND_INSTRUCTION_MAX_LENGTH 4
-#define PARSED_COMMAND_ARG1_MAX_LENGTH 8
+#define PARSED_COMMAND_ARG1_MAX_LENGTH 32
+#define PARSED_COMMAND_LABEL_MAX_LENGTH 32
+#define PARSED_COMMAND_FUNCTION_NAME_MAX_LENGTH 32
 
 /* Encapsulates parsing logic */
 typedef struct Parser Parser;
