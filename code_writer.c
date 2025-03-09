@@ -89,6 +89,7 @@ struct CodeWriter
   const char *input_file;
   char current_function[CURRENT_FUNCTION_STR_MAX_LENGTH + 1];
   unsigned int boolean_op_count;
+  unsigned int fn_call_count;
 };
 
 /* Internal Functions */
@@ -174,6 +175,7 @@ CodeWriter *code_writer_init(const char *output_filename)
   new_writer->input_file = "FOO";
   strncpy(new_writer->current_function, "", sizeof(new_writer->current_function));
   new_writer->boolean_op_count = 0;
+  new_writer->fn_call_count = 0;
 
   return new_writer;
 }
@@ -328,11 +330,14 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   if (function_name_length > sizeof(writer->current_function) - 1)
     return CODE_WRITER_FAIL_WRITE;
 
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// function %s %d\n", function_name, n_vars);
+
   /* Copy current function name */
   strncpy(writer->current_function, function_name, function_name_length);
 
   /* Create function label */
-  fprintf(writer->output_file, "(%s.%s)\n", writer->input_file, writer->current_function);
+  fprintf(writer->output_file, "(%s.%s)\n", writer->input_file, function_name);
 
   /* Initialize local variables to zero*/
   fprintf(writer->output_file, "D=0\n");
@@ -340,6 +345,77 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   {
     write_push_to_stack_operation(writer);
   }
+
+  return CODE_WRITER_SUCC;
+}
+
+/* Write to the output file the assembly code that
+ * setups a function call */
+ CodeWriterStatus code_writer_write_call(CodeWriter *writer,
+                                         const char *function_name,
+                                         unsigned int n_args)
+{
+  assert(writer);
+
+  if (!function_name)
+    return CODE_WRITER_FAIL_WRITE;
+
+  /* Add instruction comment */
+  fprintf(writer->output_file, "// call %s %d\n", function_name, n_args);
+
+  /* Save current stack location as callee ARG segment in temp register R13 */
+  fprintf(writer->output_file, "@SP\nD=M\n");
+
+  write_in_temp_register(writer, 0);
+
+  /* Save return address and push it to stack */
+  fprintf(writer->output_file, "@%s.%s$ret%d\nD=A\n",
+          writer->input_file, writer->current_function, writer->fn_call_count);
+
+  write_push_to_stack_operation(writer);
+
+  /* Save local segment and push it to stack */
+  fprintf(writer->output_file, "@LCL\nD=M\n");
+
+  write_push_to_stack_operation(writer);
+
+  /* Save arg segment and push it to stack */
+  fprintf(writer->output_file, "@ARG\nD=M\n");
+
+  write_push_to_stack_operation(writer);
+
+  /* Save this segment and push it to stack */
+  fprintf(writer->output_file, "@THIS\nD=M\n");
+
+  write_push_to_stack_operation(writer);
+
+  /* Save this segment and push it to stack */
+  fprintf(writer->output_file, "@THAT\nD=M\n");
+
+  write_push_to_stack_operation(writer);
+
+  /* Set current stack position as the callee local segment */
+  fprintf(writer->output_file, "@SP\nD=M\n@LCL\nM=D\n");
+
+  /* Retrieve ARG location in temp register*/
+  write_follow_segment_pointer(writer, MEMORY_SEGMENT_CONSTANT, 13);
+  fprintf(writer->output_file, "D=M\n");
+
+  /* Compute ARG = ARG - nArgs */
+  write_follow_segment_pointer(writer, MEMORY_SEGMENT_CONSTANT, n_args);
+  fprintf(writer->output_file, "D=D-A\n@ARG\nM=D\n");
+
+  /* goto function */
+  fprintf(writer->output_file, "@%s.%s\n0;JMP\n", writer->input_file, function_name);
+
+  /* Create return label */
+  fprintf(writer->output_file, "(%s.%s$ret%d)\n",
+          writer->input_file,
+          writer->current_function,
+          writer->fn_call_count);
+  
+  /* Increment call fount */
+  writer->fn_call_count++;         
 
   return CODE_WRITER_SUCC;
 }
