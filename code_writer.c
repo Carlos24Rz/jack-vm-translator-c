@@ -81,12 +81,13 @@ static const MemorySegmentEntry
 };
 
 #define CURRENT_FUNCTION_STR_MAX_LENGTH 256
+#define INPUT_FILENAME_MAX_LENGTH 256
 /* Encapsulates the logic to translate and write a parsed VM command
  * into Hack assembly code */
 struct CodeWriter
 {
   FILE *output_file;
-  const char *input_file;
+  char input_file[INPUT_FILENAME_MAX_LENGTH + 1];
   char current_function[CURRENT_FUNCTION_STR_MAX_LENGTH + 1];
   unsigned int boolean_op_count;
   unsigned int fn_call_count;
@@ -156,8 +157,12 @@ bool write_in_temp_register(CodeWriter *writer, unsigned int offset);
 /* End Internal Functions */
 
 /* Opens an output file and gets ready to write into it */
-CodeWriter *code_writer_init(const char *output_filename)
+CodeWriter *code_writer_init(const char *output_filename, const char *input_filename)
 {
+  const char *input_filename_start = NULL;
+  const char *input_filename_end = NULL;
+  size_t input_filename_length;
+
   CodeWriter *new_writer = NULL;
   FILE *new_file = NULL;
 
@@ -172,7 +177,48 @@ CodeWriter *code_writer_init(const char *output_filename)
   if (!new_writer) return NULL;
 
   new_writer->output_file = new_file;
-  new_writer->input_file = "FOO";
+
+  /* Get filename */
+
+  /* Remove any directories in path */
+  input_filename_start = strrchr(input_filename, '/');
+
+  if (!input_filename_start)
+  {
+    input_filename_start = input_filename;
+  } else
+  {
+    input_filename_start++;
+  }
+
+  /* Remove extension */
+  input_filename_end = strrchr(input_filename, '.');
+
+  if (!input_filename_end)
+  {
+    input_filename_end = input_filename + strlen(input_filename) - 1;
+  }
+  else
+  {
+    input_filename_end--;
+  }
+
+  input_filename_length = input_filename_end - input_filename_start + 1;
+
+  if (input_filename_length > INPUT_FILENAME_MAX_LENGTH)
+  {
+    fprintf(stderr, "code_writer_init: Input filename is too large\n");
+    fclose(new_file);
+    free(new_writer);
+    return NULL;
+  }
+
+  /* Copy filename */
+  strncpy(new_writer->input_file, input_filename_start, input_filename_length);
+
+  /* Terminate null character */
+  new_writer->input_file[input_filename_length] = '\0';
+
   strncpy(new_writer->current_function, "", sizeof(new_writer->current_function));
   new_writer->boolean_op_count = 0;
   new_writer->fn_call_count = 0;
@@ -335,7 +381,7 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   strncpy(writer->current_function, function_name, function_name_length);
 
   /* Create function label */
-  fprintf(writer->output_file, "(%s.%s)\n", writer->input_file, function_name);
+  fprintf(writer->output_file, "(%s)\n", function_name);
 
   /* Initialize local variables to zero*/
   fprintf(writer->output_file, "D=0\n");
@@ -367,8 +413,8 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   write_in_temp_register(writer, 0);
 
   /* Save return address and push it to stack */
-  fprintf(writer->output_file, "@%s.%s$ret%d\nD=A\n",
-          writer->input_file, writer->current_function, writer->fn_call_count);
+  fprintf(writer->output_file, "@%s$ret%d\nD=A\n",
+          writer->current_function, writer->fn_call_count);
 
   write_push_to_stack_operation(writer);
 
@@ -404,12 +450,11 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   fprintf(writer->output_file, "D=D-A\n@ARG\nM=D\n");
 
   /* goto function */
-  fprintf(writer->output_file, "@%s.%s\n0;JMP\n", writer->input_file, function_name);
+  fprintf(writer->output_file, "@%s\n0;JMP\n", function_name);
 
   /* Create return label */
-  fprintf(writer->output_file, "(%s.%s$ret%d)\n",
+  fprintf(writer->output_file, "(%s$ret%d)\n",
           writer->input_file,
-          writer->current_function,
           writer->fn_call_count);
   
   /* Increment call fount */

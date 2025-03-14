@@ -21,7 +21,7 @@ typedef enum CodeWriterStatus
 typedef struct CodeWriter CodeWriter;
 
 /* Opens an output file and gets ready to write into it */
-CodeWriter *code_writer_init(const char *output_filename);
+CodeWriter *code_writer_init(const char *output_filename, const char *input_filename);
 
 /* Writes to the output file the assembly code that implements
  * the given arithmetic-logical command */

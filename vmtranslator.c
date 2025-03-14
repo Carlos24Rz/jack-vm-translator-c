@@ -1,8 +1,37 @@
 #include <stdio.h>
+#include <stdbool.h>
+#include <string.h>
 
 #include "translator_common.h"
 #include "code_writer.h"
 #include "parser.h"
+
+#define VM_EXTENSION "vm"
+
+bool check_file_extension(char *filename)
+{
+  char *end = NULL;
+  char *extension = NULL;
+  size_t filename_len = strlen(filename);
+
+  end = filename + filename_len - 1;
+
+  /* Loop until find first dot from end to begin */
+  while (end != filename && *end != '.')
+  {
+    end--;
+  }
+
+  if (end == filename)
+    return false;
+
+  extension = end + 1;
+
+  if (strcmp(extension, VM_EXTENSION) != 0)
+    return false;
+
+  return true;
+}
 
 /* VM Translator
  * This is the main program that drives the translation process
@@ -21,6 +50,8 @@ int main(int argc, char *argv[])
   char current_segment[PARSED_COMMAND_ARG1_MAX_LENGTH + 1];
   char current_label[PARSED_COMMAND_LABEL_MAX_LENGTH + 1];
   char current_function[PARSED_COMMAND_FUNCTION_NAME_MAX_LENGTH + 1];
+  char *filename_start;
+  char *filename_end;
   unsigned int current_index;
   unsigned int current_function_nargs;
 
@@ -34,6 +65,13 @@ int main(int argc, char *argv[])
     return 1;
   }
 
+  /* Check if file ends with .vm extension */
+  if (!check_file_extension(argv[1]))
+  {
+    fprintf(stderr, "Error: file %s must have .vm extension\n", argv[1]);
+    return 1;
+  }
+
   /* Create parser */
   parser = parser_init(argv[1]);
 
@@ -44,7 +82,7 @@ int main(int argc, char *argv[])
   }
 
   /* Create writer */
-  writer = code_writer_init("Prog.asm");
+  writer = code_writer_init("Prog.asm", argv[1]);
 
   if (!writer)
   {
