@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
   }
 
   /* Create writer */
-  writer = code_writer_init("Prog.asm", argv[1]);
+  writer = code_writer_init("source.asm");
 
   if (!writer)
   {
@@ -90,6 +90,9 @@ int main(int argc, char *argv[])
     parser_fini(parser);
     return 1;
   }
+
+  /* Set input file in code writer */
+  code_writer_set_filename(writer, argv[1]);
 
   /* Parse each line in the file and generate instructions */
   while(parser_has_more_lines(parser))

@@ -87,6 +87,7 @@ static const MemorySegmentEntry
 struct CodeWriter
 {
   FILE *output_file;
+  bool input_file_set;
   char input_file[INPUT_FILENAME_MAX_LENGTH + 1];
   char current_function[CURRENT_FUNCTION_STR_MAX_LENGTH + 1];
   unsigned int boolean_op_count;
@@ -157,12 +158,8 @@ bool write_in_temp_register(CodeWriter *writer, unsigned int offset);
 /* End Internal Functions */
 
 /* Opens an output file and gets ready to write into it */
-CodeWriter *code_writer_init(const char *output_filename, const char *input_filename)
+CodeWriter *code_writer_init(const char *output_filename)
 {
-  const char *input_filename_start = NULL;
-  const char *input_filename_end = NULL;
-  size_t input_filename_length;
-
   CodeWriter *new_writer = NULL;
   FILE *new_file = NULL;
 
@@ -178,7 +175,30 @@ CodeWriter *code_writer_init(const char *output_filename, const char *input_file
 
   new_writer->output_file = new_file;
 
-  /* Get filename */
+  strcpy(new_writer->input_file, "");
+  strncpy(new_writer->current_function, "", sizeof(new_writer->current_function));
+  new_writer->boolean_op_count = 0;
+  new_writer->fn_call_count = 0;
+  new_writer->input_file_set = false;
+
+  return new_writer;
+}
+
+/* Informs the translation of a new VM file */
+CodeWriterStatus code_writer_set_filename(CodeWriter *writer, const char *input_filename)
+{
+  const char *input_filename_start = NULL;
+  const char *input_filename_end = NULL;
+  size_t input_filename_length;
+
+  assert(writer);
+
+  /* Reset writer file metadata */
+  strcpy(writer->input_file, "");
+  strcpy(writer->current_function, "");
+  writer->boolean_op_count = 0;
+  writer->fn_call_count = 0;
+  writer->input_file_set = false;
 
   /* Remove any directories in path */
   input_filename_start = strrchr(input_filename, '/');
@@ -208,22 +228,19 @@ CodeWriter *code_writer_init(const char *output_filename, const char *input_file
   if (input_filename_length > INPUT_FILENAME_MAX_LENGTH)
   {
     fprintf(stderr, "code_writer_init: Input filename is too large\n");
-    fclose(new_file);
-    free(new_writer);
-    return NULL;
+    return CODE_WRITER_FAIL_SET_INPUT_FILE;
   }
 
   /* Copy filename */
-  strncpy(new_writer->input_file, input_filename_start, input_filename_length);
+  strncpy(writer->input_file, input_filename_start, input_filename_length);
 
   /* Terminate null character */
-  new_writer->input_file[input_filename_length] = '\0';
+  writer->input_file[input_filename_length] = '\0';
 
-  strncpy(new_writer->current_function, "", sizeof(new_writer->current_function));
-  new_writer->boolean_op_count = 0;
-  new_writer->fn_call_count = 0;
+  writer->input_file_set = true;
 
-  return new_writer;
+  return CODE_WRITER_SUCC;
+
 }
 
 /* Writes to the output file the assembly code that implements
@@ -236,7 +253,12 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
 
   assert(writer);
 
-  if (!cmd) return CODE_WRITER_INVALID_ARITHMETIC_CMD;
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!cmd) return CODE_WRITER_INVALID_ARITHMETIC_CMD;
 
   /* Get type of arithmetic-logical operation */
   for (idx = 0; idx < ARITHMETIC_LOGICAL_CMD_TABLE_SIZE; idx++)
@@ -323,7 +345,12 @@ CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
 
   assert(writer);
 
-  if (cmd != C_PUSH && cmd != C_POP) return CODE_WRITER_INVALID_PUSH_POP_CMD;
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (cmd != C_PUSH && cmd != C_POP) return CODE_WRITER_INVALID_PUSH_POP_CMD;
   else if (!segment) return CODE_WRITER_INVALID_PUSH_POP_SEGMENT;
 
   /* get type of segment type */
@@ -371,7 +398,12 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   int i;
   assert(writer);
 
-  if (function_name_length > sizeof(writer->current_function) - 1)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (function_name_length > sizeof(writer->current_function) - 1)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
@@ -401,7 +433,12 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
 {
   assert(writer);
 
-  if (!function_name)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!function_name)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
@@ -469,6 +506,12 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
 {
   assert(writer);
 
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+
   /* Add instruction comment */
   fprintf(writer->output_file, "// return\n");
 
@@ -510,7 +553,12 @@ CodeWriterStatus code_writer_write_label(CodeWriter *writer,
 {
   assert(writer);
 
-  if (!label)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!label)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
@@ -531,7 +579,12 @@ CodeWriterStatus code_writer_write_goto(CodeWriter *writer,
 {
   assert(writer);
 
-  if (!label)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!label)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
@@ -552,7 +605,12 @@ CodeWriterStatus code_writer_write_if(CodeWriter *writer,
 {
   assert(writer);
 
-  if (!label)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!label)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
