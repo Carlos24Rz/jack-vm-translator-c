@@ -239,6 +239,9 @@ CodeWriterStatus code_writer_set_filename(CodeWriter *writer, const char *input_
 
   writer->input_file_set = true;
 
+  /* Set file start comment */
+  fprintf(writer->output_file, "// Translation %s\n", writer->input_file);
+
   return CODE_WRITER_SUCC;
 
 }
