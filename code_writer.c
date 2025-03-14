@@ -81,12 +81,14 @@ static const MemorySegmentEntry
 };
 
 #define CURRENT_FUNCTION_STR_MAX_LENGTH 256
+#define INPUT_FILENAME_MAX_LENGTH 256
 /* Encapsulates the logic to translate and write a parsed VM command
  * into Hack assembly code */
 struct CodeWriter
 {
   FILE *output_file;
-  const char *input_file;
+  bool input_file_set;
+  char input_file[INPUT_FILENAME_MAX_LENGTH + 1];
   char current_function[CURRENT_FUNCTION_STR_MAX_LENGTH + 1];
   unsigned int boolean_op_count;
   unsigned int fn_call_count;
@@ -172,12 +174,88 @@ CodeWriter *code_writer_init(const char *output_filename)
   if (!new_writer) return NULL;
 
   new_writer->output_file = new_file;
-  new_writer->input_file = "FOO";
+
+  strcpy(new_writer->input_file, "");
   strncpy(new_writer->current_function, "", sizeof(new_writer->current_function));
   new_writer->boolean_op_count = 0;
   new_writer->fn_call_count = 0;
+  new_writer->input_file_set = false;
+
+  /* Set boostrap code
+   * SP = 256
+   * call Sys.init */
+
+  fprintf(new_writer->output_file, "// BOOTSTRAP CODE\n");
+  fprintf(new_writer->output_file, "// SP=256\n@256\nD=A\n@SP\nM=D\n");
+
+  code_writer_write_call(new_writer, "Sys.init", 0);
+
+  // Enter infinite loop
+  //fprintf(new_writer->output_file, "// BOOTSTRAP INIFNITE LOOP\n@$ret0\n0;JMP\n");
 
   return new_writer;
+}
+
+/* Informs the translation of a new VM file */
+CodeWriterStatus code_writer_set_filename(CodeWriter *writer, const char *input_filename)
+{
+  const char *input_filename_start = NULL;
+  const char *input_filename_end = NULL;
+  size_t input_filename_length;
+
+  assert(writer);
+
+  /* Reset writer file metadata */
+  strcpy(writer->input_file, "");
+  strcpy(writer->current_function, "");
+  writer->boolean_op_count = 0;
+  writer->fn_call_count = 0;
+  writer->input_file_set = false;
+
+  /* Remove any directories in path */
+  input_filename_start = strrchr(input_filename, '/');
+
+  if (!input_filename_start)
+  {
+    input_filename_start = input_filename;
+  } else
+  {
+    input_filename_start++;
+  }
+
+  /* Remove extension */
+  input_filename_end = strrchr(input_filename, '.');
+
+  if (!input_filename_end)
+  {
+    input_filename_end = input_filename + strlen(input_filename) - 1;
+  }
+  else
+  {
+    input_filename_end--;
+  }
+
+  input_filename_length = input_filename_end - input_filename_start + 1;
+
+  if (input_filename_length > INPUT_FILENAME_MAX_LENGTH)
+  {
+    fprintf(stderr, "code_writer_init: Input filename is too large\n");
+    return CODE_WRITER_FAIL_SET_INPUT_FILE;
+  }
+
+  /* Copy filename */
+  strncpy(writer->input_file, input_filename_start, input_filename_length);
+
+  /* Terminate null character */
+  writer->input_file[input_filename_length] = '\0';
+
+  writer->input_file_set = true;
+
+  /* Set file start comment */
+  fprintf(writer->output_file, "// Translation %s\n", writer->input_file);
+
+  return CODE_WRITER_SUCC;
+
 }
 
 /* Writes to the output file the assembly code that implements
@@ -190,7 +268,12 @@ CodeWriterStatus code_writer_write_arithmetic(CodeWriter* writer,
 
   assert(writer);
 
-  if (!cmd) return CODE_WRITER_INVALID_ARITHMETIC_CMD;
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!cmd) return CODE_WRITER_INVALID_ARITHMETIC_CMD;
 
   /* Get type of arithmetic-logical operation */
   for (idx = 0; idx < ARITHMETIC_LOGICAL_CMD_TABLE_SIZE; idx++)
@@ -277,7 +360,12 @@ CodeWriterStatus code_writer_write_push_pop(CodeWriter *writer,
 
   assert(writer);
 
-  if (cmd != C_PUSH && cmd != C_POP) return CODE_WRITER_INVALID_PUSH_POP_CMD;
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (cmd != C_PUSH && cmd != C_POP) return CODE_WRITER_INVALID_PUSH_POP_CMD;
   else if (!segment) return CODE_WRITER_INVALID_PUSH_POP_SEGMENT;
 
   /* get type of segment type */
@@ -325,7 +413,12 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   int i;
   assert(writer);
 
-  if (function_name_length > sizeof(writer->current_function) - 1)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (function_name_length > sizeof(writer->current_function) - 1)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
@@ -335,7 +428,7 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   strncpy(writer->current_function, function_name, function_name_length);
 
   /* Create function label */
-  fprintf(writer->output_file, "(%s.%s)\n", writer->input_file, function_name);
+  fprintf(writer->output_file, "(%s)\n", function_name);
 
   /* Initialize local variables to zero*/
   fprintf(writer->output_file, "D=0\n");
@@ -367,8 +460,8 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   write_in_temp_register(writer, 0);
 
   /* Save return address and push it to stack */
-  fprintf(writer->output_file, "@%s.%s$ret%d\nD=A\n",
-          writer->input_file, writer->current_function, writer->fn_call_count);
+  fprintf(writer->output_file, "@%s$ret%d\nD=A\n",
+          writer->current_function, writer->fn_call_count);
 
   write_push_to_stack_operation(writer);
 
@@ -404,11 +497,10 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
   fprintf(writer->output_file, "D=D-A\n@ARG\nM=D\n");
 
   /* goto function */
-  fprintf(writer->output_file, "@%s.%s\n0;JMP\n", writer->input_file, function_name);
+  fprintf(writer->output_file, "@%s\n0;JMP\n", function_name);
 
   /* Create return label */
-  fprintf(writer->output_file, "(%s.%s$ret%d)\n",
-          writer->input_file,
+  fprintf(writer->output_file, "(%s$ret%d)\n",
           writer->current_function,
           writer->fn_call_count);
   
@@ -424,8 +516,25 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
 {
   assert(writer);
 
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+
   /* Add instruction comment */
   fprintf(writer->output_file, "// return\n");
+
+  /* Get local segment address */
+  fprintf(writer->output_file, "@LCL\nD=M\n");
+
+  /* Store local segment in temp register R13 */
+  write_in_temp_register(writer, 0);
+
+  /* Store return address in temp register R14 */
+  fprintf(writer->output_file, "@5\nA=D-A\nD=M\n");
+
+  write_in_temp_register(writer, 1);
 
   /* Set return value in ARG[0] */
   write_pop_from_stack_operation(writer);
@@ -435,14 +544,8 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
   /* Reposition caller working stack at ARG + 1*/
   fprintf(writer->output_file, "D=A+1\n@SP\nM=D\n");
 
-  /* Get local segment address */
-  fprintf(writer->output_file, "@LCL\nD=M\n");
-
-  /* Store local segment in temp register R13 */
-  write_in_temp_register(writer, 0);
-
   /* Restore caller THAT segment */
-  fprintf(writer->output_file, "AM=M-1\nD=M\n@THAT\nM=D\n");
+  fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@THAT\nM=D\n");
 
   /* Restore caller THIS segment */
   fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@THIS\nM=D\n");
@@ -454,7 +557,7 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
   fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@LCL\nM=D\n");
 
   /* Get return address and jump back */
-  fprintf(writer->output_file, "@R13\nAM=M-1\nA=M\n0;JMP\n");
+  fprintf(writer->output_file, "@R14\nA=M\n0;JMP\n");
 
   return CODE_WRITER_SUCC;
 }
@@ -465,7 +568,12 @@ CodeWriterStatus code_writer_write_label(CodeWriter *writer,
 {
   assert(writer);
 
-  if (!label)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!label)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
@@ -486,7 +594,12 @@ CodeWriterStatus code_writer_write_goto(CodeWriter *writer,
 {
   assert(writer);
 
-  if (!label)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!label)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
@@ -507,7 +620,12 @@ CodeWriterStatus code_writer_write_if(CodeWriter *writer,
 {
   assert(writer);
 
-  if (!label)
+  if (!writer->input_file_set)
+  {
+    fprintf(stderr, "code_writer: Input file is not set\n");
+    return CODE_WRITER_FAIL_WRITE;
+  }
+  else if (!label)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */

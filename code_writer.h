@@ -13,6 +13,7 @@ typedef enum CodeWriterStatus
   CODE_WRITER_INVALID_PUSH_POP_SEGMENT,
   CODE_WRITER_INVALID_PUSH_POP_INDEX,
   CODE_WRITER_FAIL_WRITE,
+  CODE_WRITER_FAIL_SET_INPUT_FILE,
   CODE_WRITER_SUCC
 } CodeWriterStatus;
 
@@ -22,6 +23,9 @@ typedef struct CodeWriter CodeWriter;
 
 /* Opens an output file and gets ready to write into it */
 CodeWriter *code_writer_init(const char *output_filename);
+
+/* Informs the translation of a new VM file */
+CodeWriterStatus code_writer_set_filename(CodeWriter *writer, const char *input_filename);
 
 /* Writes to the output file the assembly code that implements
  * the given arithmetic-logical command */
