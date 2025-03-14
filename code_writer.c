@@ -181,6 +181,18 @@ CodeWriter *code_writer_init(const char *output_filename)
   new_writer->fn_call_count = 0;
   new_writer->input_file_set = false;
 
+  /* Set boostrap code
+   * SP = 256
+   * call Sys.init */
+
+  fprintf(new_writer->output_file, "// BOOTSTRAP CODE\n");
+  fprintf(new_writer->output_file, "// SP=256\n@256\nD=A\n@SP\nM=D\n");
+
+  code_writer_write_call(new_writer, "Sys.init", 0);
+
+  // Enter infinite loop
+  //fprintf(new_writer->output_file, "// BOOTSTRAP INIFNITE LOOP\n@$ret0\n0;JMP\n");
+
   return new_writer;
 }
 
@@ -436,12 +448,7 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
 {
   assert(writer);
 
-  if (!writer->input_file_set)
-  {
-    fprintf(stderr, "code_writer: Input file is not set\n");
-    return CODE_WRITER_FAIL_WRITE;
-  }
-  else if (!function_name)
+  if (!function_name)
     return CODE_WRITER_FAIL_WRITE;
 
   /* Add instruction comment */
@@ -494,7 +501,7 @@ CodeWriterStatus code_writer_write_function(CodeWriter *writer,
 
   /* Create return label */
   fprintf(writer->output_file, "(%s$ret%d)\n",
-          writer->input_file,
+          writer->current_function,
           writer->fn_call_count);
   
   /* Increment call fount */
@@ -518,6 +525,17 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
   /* Add instruction comment */
   fprintf(writer->output_file, "// return\n");
 
+  /* Get local segment address */
+  fprintf(writer->output_file, "@LCL\nD=M\n");
+
+  /* Store local segment in temp register R13 */
+  write_in_temp_register(writer, 0);
+
+  /* Store return address in temp register R14 */
+  fprintf(writer->output_file, "@5\nA=D-A\nD=M\n");
+
+  write_in_temp_register(writer, 1);
+
   /* Set return value in ARG[0] */
   write_pop_from_stack_operation(writer);
 
@@ -526,14 +544,8 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
   /* Reposition caller working stack at ARG + 1*/
   fprintf(writer->output_file, "D=A+1\n@SP\nM=D\n");
 
-  /* Get local segment address */
-  fprintf(writer->output_file, "@LCL\nD=M\n");
-
-  /* Store local segment in temp register R13 */
-  write_in_temp_register(writer, 0);
-
   /* Restore caller THAT segment */
-  fprintf(writer->output_file, "AM=M-1\nD=M\n@THAT\nM=D\n");
+  fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@THAT\nM=D\n");
 
   /* Restore caller THIS segment */
   fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@THIS\nM=D\n");
@@ -545,7 +557,7 @@ CodeWriterStatus code_writer_write_return(CodeWriter *writer)
   fprintf(writer->output_file, "@R13\nAM=M-1\nD=M\n@LCL\nM=D\n");
 
   /* Get return address and jump back */
-  fprintf(writer->output_file, "@R13\nAM=M-1\nA=M\n0;JMP\n");
+  fprintf(writer->output_file, "@R14\nA=M\n0;JMP\n");
 
   return CODE_WRITER_SUCC;
 }
